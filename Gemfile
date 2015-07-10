@@ -1,45 +1,96 @@
 source 'https://rubygems.org'
 
+gem "rails", "3.2.13"
+gem "jquery-rails", "~> 2.0.2"
+gem "i18n", "~> 0.6.0"
+gem "coderay", "~> 1.0.9"
+gem "fastercsv", "~> 1.5.0", :platforms => [:mri_18, :mingw_18, :jruby]
+gem "builder", "3.0.0"
 
-# Bundle edge Rails instead: gem 'rails', github: 'rails/rails'
-gem 'rails', '4.2.2'
-# Use sqlite3 as the database for Active Record
-gem 'sqlite3'
-# Use SCSS for stylesheets
-gem 'sass-rails', '~> 5.0'
-# Use Uglifier as compressor for JavaScript assets
-gem 'uglifier', '>= 1.3.0'
-# Use CoffeeScript for .coffee assets and views
-gem 'coffee-rails', '~> 4.1.0'
-# See https://github.com/rails/execjs#readme for more supported runtimes
-# gem 'therubyracer', platforms: :ruby
-
-# Use jquery as the JavaScript library
-gem 'jquery-rails'
-# Turbolinks makes following links in your web application faster. Read more: https://github.com/rails/turbolinks
-gem 'turbolinks'
-# Build JSON APIs with ease. Read more: https://github.com/rails/jbuilder
-gem 'jbuilder', '~> 2.0'
-# bundle exec rake doc:rails generates the API under doc/api.
-gem 'sdoc', '~> 0.4.0', group: :doc
-
-# Use ActiveModel has_secure_password
-# gem 'bcrypt', '~> 3.1.7'
-
-# Use Unicorn as the app server
-# gem 'unicorn'
-
-# Use Capistrano for deployment
-# gem 'capistrano-rails', group: :development
-
-group :development, :test do
-  # Call 'byebug' anywhere in the code to stop execution and get a debugger console
-  gem 'byebug'
-
-  # Access an IRB console on exception pages or by using <%= console %> in views
-  gem 'web-console', '~> 2.0'
-
-  # Spring speeds up development by keeping your application running in the background. Read more: https://github.com/rails/spring
-  gem 'spring'
+# Optional gem for LDAP authentication
+group :ldap do
+  gem "net-ldap", "~> 0.3.1"
 end
 
+# Optional gem for OpenID authentication
+group :openid do
+  gem "ruby-openid", "~> 2.1.4", :require => "openid"
+  gem "rack-openid"
+end
+
+# Optional gem for exporting the gantt to a PNG file, not supported with jruby
+platforms :mri, :mingw do
+  group :rmagick do
+    # RMagick 2 supports ruby 1.9
+    # RMagick 1 would be fine for ruby 1.8 but Bundler does not support
+    # different requirements for the same gem on different platforms
+    gem "rmagick", ">= 2.0.0"
+  end
+end
+
+platforms :jruby do
+  # jruby-openssl is bundled with JRuby 1.7.0
+  gem "jruby-openssl" if Object.const_defined?(:JRUBY_VERSION) && JRUBY_VERSION < '1.7.0'
+  gem "activerecord-jdbc-adapter", "1.2.5"
+end
+
+# Include database gems for the adapters found in the database
+# configuration file
+require 'erb'
+require 'yaml'
+database_file = File.join(File.dirname(__FILE__), "config/database.yml")
+if File.exist?(database_file)
+  database_config = YAML::load(ERB.new(IO.read(database_file)).result)
+  adapters = database_config.values.map {|c| c['adapter']}.compact.uniq
+  if adapters.any?
+    adapters.each do |adapter|
+      case adapter
+      when 'mysql2'
+        gem "mysql2", "~> 0.3.11", :platforms => [:mri, :mingw]
+        gem "activerecord-jdbcmysql-adapter", :platforms => :jruby
+      when 'mysql'
+        gem "mysql", "~> 2.8.1", :platforms => [:mri, :mingw]
+        gem "activerecord-jdbcmysql-adapter", :platforms => :jruby
+      when /postgresql/
+        gem "pg", ">= 0.11.0", :platforms => [:mri, :mingw]
+        gem "activerecord-jdbcpostgresql-adapter", :platforms => :jruby
+      when /sqlite3/
+        gem "sqlite3", :platforms => [:mri, :mingw]
+        gem "activerecord-jdbcsqlite3-adapter", :platforms => :jruby
+      when /sqlserver/
+        gem "tiny_tds", "~> 0.5.1", :platforms => [:mri, :mingw]
+        gem "activerecord-sqlserver-adapter", :platforms => [:mri, :mingw]
+      else
+        warn("Unknown database adapter `#{adapter}` found in config/database.yml, use Gemfile.local to load your own database gems")
+      end
+    end
+  else
+    warn("No adapter found in config/database.yml, please configure it first")
+  end
+else
+  warn("Please configure your config/database.yml first")
+end
+
+group :development do
+  gem "rdoc", ">= 2.4.2"
+  gem "yard"
+end
+
+group :test do
+  gem "shoulda", "~> 3.3.2"
+  gem "mocha", "~> 0.13.3"
+  gem 'capybara', '~> 2.0.0'
+  gem 'nokogiri', '< 1.6.0'
+end
+
+local_gemfile = File.join(File.dirname(__FILE__), "Gemfile.local")
+if File.exists?(local_gemfile)
+  puts "Loading Gemfile.local ..." if $DEBUG # `ruby -d` or `bundle -v`
+  instance_eval File.read(local_gemfile)
+end
+
+# Load plugins' Gemfiles
+Dir.glob File.expand_path("../plugins/*/Gemfile", __FILE__) do |file|
+  puts "Loading #{file} ..." if $DEBUG # `ruby -d` or `bundle -v`
+  instance_eval File.read(file)
+end
